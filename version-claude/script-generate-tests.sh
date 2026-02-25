@@ -59,94 +59,158 @@ declare(strict_types=1);
 
 namespace MyVendor\MyExtension\Tests\Functional\Headless;
 
-use TYPO3\TestingFramework\Core\Functional\FunctionalTestCase;
-use TYPO3\TestingFramework\Core\Functional\Framework\Frontend\InternalRequest;
-use JsonSchema\Validator;
-
 /**
- * Test case for ${scenario} JSON response
+ * Test case for ${scenario} JSON response.
  *
- * Pour régénérer les snapshots :
+ * Valide toutes les zones de la réponse TYPO3 headless :
+ *   - Structure globale   → JSON Schema principal + snapshot global
+ *   - meta (SEO)          → schema partiel + snapshot partiel + assertions métier
+ *   - i18n                → schema partiel + snapshot partiel + assertions métier
+ *   - breadcrumbs         → schema partiel + snapshot partiel + assertions métier
+ *   - appearance / layout → schema partiel + snapshot partiel
+ *   - content (colPos)    → schema partiel + snapshot partiel + assertions structure
+ *
+ * Pour régénérer tous les snapshots :
  *   UPDATE_SNAPSHOTS=1 vendor/bin/phpunit -c typo3/sysext/core/Build/FunctionalTests.xml Tests/Functional/Headless
  */
-class ${class_name}Test extends FunctionalTestCase
+class ${class_name}Test extends AbstractHeadlessTestCase
 {
-    protected array \$testExtensionsToLoad = [
-        'typo3conf/ext/headless',
-        'typo3conf/ext/my_extension',
-    ];
-
     protected function setUp(): void
     {
         parent::setUp();
-        \$this->importCSVDataSet(__DIR__ . '/../../Fixtures/Database/${scenario}/pages.csv');
-
-        // Import des tables additionnelles si elles existent
-        \$additionalTables = [
-            'tt_content',
-            'sys_file',
-            'sys_file_reference',
-            'sys_category',
-            'sys_category_record_mm',
-        ];
-        foreach (\$additionalTables as \$table) {
-            \$file = __DIR__ . '/../../Fixtures/Database/${scenario}/' . \$table . '.csv';
-            if (file_exists(\$file)) {
-                \$this->importCSVDataSet(\$file);
-            }
-        }
+        \$this->importScenarioFixtures('${scenario}');
     }
+
+    // -----------------------------------------------------------------------
+    // 1. Schema global
+    // -----------------------------------------------------------------------
+
+    /**
+     * @test
+     * Valide la structure complète de la réponse (toutes les zones)
+     * contre le schema principal qui référence les schemas partiels via \$ref.
+     */
+    public function jsonResponseMatchesGlobalSchema(): void
+    {
+        \$response = \$this->getHeadlessResponse(${page_uid});
+        \$this->assertMatchesJsonSchema(\$response, '${scenario}');
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. Snapshot global
+    // -----------------------------------------------------------------------
+
+    /**
+     * @test
+     * Détecte toute régression sur la réponse complète.
+     * Un diff = soit une régression (corriger le code), soit un changement
+     * volontaire (relancer avec UPDATE_SNAPSHOTS=1 et commiter).
+     */
+    public function jsonResponseMatchesGlobalSnapshot(): void
+    {
+        \$raw = \$this->getHeadlessResponseRaw(${page_uid});
+        \$this->assertMatchesSnapshot(\$raw, '${scenario}');
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. Zone meta (SEO)
+    // -----------------------------------------------------------------------
 
     /**
      * @test
      */
-    public function jsonResponseMatchesSchema(): void
+    public function metaZoneMatchesSchemaAndSnapshot(): void
     {
-        // [CORRECTIF] executeFrontendSubRequest() + InternalRequest remplace getFrontendResponse()
-        \$request = new InternalRequest('https://website.local/');
-        \$request = \$request->withQueryParameter('id', ${page_uid});
-        \$response = \$this->executeFrontendSubRequest(\$request);
+        \$response = \$this->getHeadlessResponse(${page_uid});
 
-        \$json = json_decode((string)\$response->getBody());
+        \$this->assertArrayHasKey('meta', \$response, 'La zone meta est absente de la réponse');
 
-        \$validator = new Validator();
-        \$schemaFile = __DIR__ . '/../../Fixtures/Schemas/${scenario}.schema.json';
-        \$schemaData = json_decode(file_get_contents(\$schemaFile));
+        // Schema partiel
+        \$this->assertZoneMatchesSchema(\$response['meta'], 'partials/meta');
 
-        \$validator->validate(\$json, \$schemaData);
+        // Snapshot partiel (diff Git lisible indépendamment du contenu)
+        \$this->assertPartialSnapshot(\$response['meta'], '${scenario}.meta');
 
-        \$this->assertTrue(
-            \$validator->isValid(),
-            'JSON Schema validation failed: ' . json_encode(\$validator->getErrors())
-        );
+        // Règles métier (title non vide, robots valide, canonical absolu, ogImage dans /fileadmin/)
+        \$this->assertValidMetaZone(\$response['meta'], '${scenario}');
     }
+
+    // -----------------------------------------------------------------------
+    // 4. Zone i18n
+    // -----------------------------------------------------------------------
 
     /**
      * @test
      */
-    public function jsonResponseMatchesSnapshot(): void
+    public function i18nZoneMatchesSchemaAndSnapshot(): void
     {
-        // [CORRECTIF] executeFrontendSubRequest() + InternalRequest remplace getFrontendResponse()
-        \$request = new InternalRequest('https://website.local/');
-        \$request = \$request->withQueryParameter('id', ${page_uid});
-        \$response = \$this->executeFrontendSubRequest(\$request);
+        \$response = \$this->getHeadlessResponse(${page_uid});
 
-        \$actual = (string)\$response->getBody();
-        \$snapshotFile = __DIR__ . '/../../Fixtures/Snapshots/${scenario}.json';
+        \$this->assertArrayHasKey('i18n', \$response, 'La zone i18n est absente de la réponse');
 
-        // [CORRECTIF] Génération du snapshot depuis le test lui-même,
-        // plus de curl externe. Lancer avec UPDATE_SNAPSHOTS=1 pour régénérer.
-        if (!file_exists(\$snapshotFile) || getenv('UPDATE_SNAPSHOTS') === '1') {
-            \$pretty = json_encode(json_decode(\$actual), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            file_put_contents(\$snapshotFile, \$pretty);
-            \$this->markTestSkipped('Snapshot généré. Relancez les tests sans UPDATE_SNAPSHOTS.');
-        }
+        \$this->assertZoneMatchesSchema(\$response['i18n'], 'partials/i18n');
+        \$this->assertPartialSnapshot(\$response['i18n'], '${scenario}.i18n');
 
-        \$this->assertJsonStringEqualsJsonFile(
-            \$snapshotFile,
-            \$actual,
-            'JSON response does not match snapshot'
-        );
+        // Passer la locale attendue en 2ème argument si elle est fixe pour ce scénario
+        // ex: \$this->assertValidI18nZone(\$response['i18n'], 'fr_FR.UTF-8', '${scenario}');
+        \$this->assertValidI18nZone(\$response['i18n'], '', '${scenario}');
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Zone breadcrumbs
+    // -----------------------------------------------------------------------
+
+    /**
+     * @test
+     */
+    public function breadcrumbsZoneMatchesSchemaAndSnapshot(): void
+    {
+        \$response = \$this->getHeadlessResponse(${page_uid});
+
+        \$this->assertArrayHasKey('breadcrumbs', \$response, 'La zone breadcrumbs est absente de la réponse');
+
+        \$this->assertZoneMatchesSchema(\$response['breadcrumbs'], 'partials/breadcrumbs');
+        \$this->assertPartialSnapshot(\$response['breadcrumbs'], '${scenario}.breadcrumbs');
+
+        // Règles métier : racine = /, un seul current=true, dernier = current
+        \$this->assertValidBreadcrumbsZone(\$response['breadcrumbs'], '${scenario}');
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. Zone appearance (layout backend)
+    // -----------------------------------------------------------------------
+
+    /**
+     * @test
+     */
+    public function appearanceZoneMatchesSchemaAndSnapshot(): void
+    {
+        \$response = \$this->getHeadlessResponse(${page_uid});
+
+        \$this->assertArrayHasKey('appearance', \$response, 'La zone appearance est absente de la réponse');
+
+        \$this->assertZoneMatchesSchema(\$response['appearance'], 'partials/appearance');
+        \$this->assertPartialSnapshot(\$response['appearance'], '${scenario}.appearance');
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Zone content (colPos)
+    // -----------------------------------------------------------------------
+
+    /**
+     * @test
+     */
+    public function contentZoneMatchesSchemaAndSnapshot(): void
+    {
+        \$response = \$this->getHeadlessResponse(${page_uid});
+
+        \$this->assertArrayHasKey('content', \$response, 'La zone content est absente de la réponse');
+
+        \$this->assertZoneMatchesSchema(\$response['content'], 'partials/content');
+        \$this->assertPartialSnapshot(\$response['content'], '${scenario}.content');
+
+        // Vérifier que colPos0 est toujours présent (adapter si besoin: ['colPos0', 'colPos1'])
+        \$this->assertValidContentZone(\$response['content'], ['colPos0']);
     }
 }
 EOF

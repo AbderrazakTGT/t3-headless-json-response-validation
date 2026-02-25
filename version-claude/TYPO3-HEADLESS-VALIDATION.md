@@ -188,19 +188,35 @@ Tests/
 │   │       └── sys_category_record_mm.csv
 │   │
 │   ├── Schemas/
-│   │   ├── page_simple.schema.json
+│   │   ├── partials/                        ← schemas partiels réutilisables
+│   │   │   ├── meta.schema.json             (SEO : title, robots, canonical, og:*)
+│   │   │   ├── i18n.schema.json             (langue, locale, hreflang, alternates)
+│   │   │   ├── breadcrumbs.schema.json      (fil d'Ariane)
+│   │   │   ├── appearance.schema.json       (layout, backendLayout)
+│   │   │   └── content.schema.json          (colPos, éléments de contenu)
+│   │   ├── page_simple.schema.json          ← schema principal ($ref vers partiels)
 │   │   ├── page_with_content.schema.json
 │   │   ├── page_with_images.schema.json
 │   │   └── page_with_categories.schema.json
 │   │
 │   └── Snapshots/
-│       ├── page_simple.json
+│       ├── page_simple.json                 ← snapshot global
+│       ├── page_simple.meta.json            ← snapshot partiel zone meta
+│       ├── page_simple.i18n.json            ← snapshot partiel zone i18n
+│       ├── page_simple.breadcrumbs.json
+│       ├── page_simple.appearance.json
+│       ├── page_simple.content.json
 │       ├── page_with_content.json
-│       ├── page_with_images.json
-│       └── page_with_categories.json
+│       ├── page_with_content.meta.json
+│       ├── page_with_content.i18n.json
+│       ├── page_with_content.breadcrumbs.json
+│       ├── page_with_content.appearance.json
+│       └── page_with_content.content.json
+│       └── ... (idem pour les autres scénarios)
 │
 └── Scripts/
     ├── generate_headless_tests.sh   ← génère les fichiers PHP de test
+    ├── generate_schemas.sh          ← génère les schemas partiels (nouveau)
     ├── update_snapshots.sh          ← régénère les snapshots via PHPUnit
     └── verify_snapshots.sh          ← vérifie la validité des snapshots
 ```
@@ -220,19 +236,22 @@ Le développeur backend TYPO3 est responsable de :
 # 1. Installer les dépendances PHP de test
 composer require --dev typo3/testing-framework justinrainbow/json-schema
 
-# 2. Générer la structure des tests et les fichiers PHP
+# 2. Générer les schemas partiels (meta, i18n, breadcrumbs, appearance, content)
 chmod +x Tests/Scripts/*.sh
+./Tests/Scripts/generate_schemas.sh
+
+# 3. Générer la structure des tests et les fichiers PHP
 ./Tests/Scripts/generate_headless_tests.sh
 
-# 3. Remplir les CSV dans Tests/Fixtures/Database/ (à la main)
+# 4. Remplir les CSV dans Tests/Fixtures/Database/ (à la main)
 # Voir les exemples dans Tests/Fixtures/Database/page_with_content/
 
-# 4. Générer les snapshots initiaux
+# 5. Générer tous les snapshots (global + partiels par zone)
 UPDATE_SNAPSHOTS=1 vendor/bin/phpunit \
   -c typo3/sysext/core/Build/FunctionalTests.xml \
   Tests/Functional/Headless
 
-# 5. Commiter tout
+# 6. Commiter tout
 git add Tests/
 git commit -m "feat: add headless JSON validation tests"
 ```
@@ -550,6 +569,9 @@ FAIL  Tests/Functional/Headless/PageWithContentTest.php
 ### Backend
 
 ```bash
+# Générer les schemas partiels (première fois ou après modification)
+./Tests/Scripts/generate_schemas.sh
+
 # Générer la structure des tests (première fois)
 ./Tests/Scripts/generate_headless_tests.sh
 
@@ -559,16 +581,19 @@ vendor/bin/phpunit \
   Tests/Functional/Headless \
   --testdox
 
-# Régénérer les snapshots après un changement volontaire
+# Régénérer tous les snapshots (global + partiels) après un changement volontaire
 UPDATE_SNAPSHOTS=1 vendor/bin/phpunit \
   -c typo3/sysext/core/Build/FunctionalTests.xml \
   Tests/Functional/Headless
 
+# Inspecter le diff par zone après régénération
+git diff Tests/Fixtures/Snapshots/*.meta.json        # changements SEO
+git diff Tests/Fixtures/Snapshots/*.i18n.json        # changements i18n
+git diff Tests/Fixtures/Snapshots/*.breadcrumbs.json # changements navigation
+git diff Tests/Fixtures/Snapshots/*.content.json     # changements contenu
+
 # Vérifier les snapshots avant un commit
 ./Tests/Scripts/verify_snapshots.sh
-
-# Régénérer via le script dédié (wrapper de la commande ci-dessus)
-./Tests/Scripts/update_snapshots.sh
 ```
 
 ### Frontend
