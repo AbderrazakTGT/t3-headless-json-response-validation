@@ -1,0 +1,40 @@
+Tests/
+├── Functional/
+│   └── Headless/
+│       ├── PageSimpleTest.php
+│       ├── PageWithContentTest.php
+│       ├── PageWithImagesTest.php
+│       └── PageWithCategoriesTest.php
+├── Fixtures/
+│   ├── Database/
+│   │   ├── page_simple/
+│   │   │   └── pages.csv
+│   │   ├── page_with_content/
+│   │   │   ├── pages.csv
+│   │   │   └── tt_content.csv
+│   │   ├── page_with_images/
+│   │   │   ├── pages.csv
+│   │   │   ├── tt_content.csv
+│   │   │   ├── sys_file.csv
+│   │   │   └── sys_file_reference.csv
+│   │   └── page_with_categories/
+│   │       ├── pages.csv
+│   │       ├── tt_content.csv
+│   │       ├── sys_category.csv
+│   │       └── sys_category_record_mm.csv
+│   ├── Schemas/
+│   │   ├── page_simple.schema.json
+│   │   ├── page_with_content.schema.json
+│   │   ├── page_with_images.schema.json
+│   │   └── page_with_categories.schema.json
+│   └── Snapshots/
+│       ├── page_simple.json
+│       ├── page_with_content.json
+│       ├── page_with_images.json
+│       └── page_with_categories.json
+├── Scripts/
+│   ├── generate_headless_tests.sh
+│   ├── update_snapshots.sh
+│   └── verify_snapshots.sh
+└── CI/
+    └── .gitlab-ci.yml

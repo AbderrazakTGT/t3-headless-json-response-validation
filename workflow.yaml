@@ -1,0 +1,93 @@
+# Fichier: .gitlab-ci.yml
+
+stages:
+  - test
+  - security
+  - notification
+
+variables:
+  MYSQL_ROOT_PASSWORD: root
+  MYSQL_DATABASE: typo3_test
+  MYSQL_USER: typo3
+  MYSQL_PASSWORD: typo3
+  COMPOSER_CACHE_DIR: .cache/composer
+
+cache:
+  paths:
+    - .cache
+    - vendor/
+    - typo3temp/
+
+before_script:
+  - apt-get update && apt-get install -y mysql-client jq curl
+  - composer install --no-progress --prefer-dist
+
+# Étape 1: Vérification des snapshots
+verify_snapshots:
+  stage: test
+  script:
+    - chmod +x Tests/Scripts/verify_snapshots.sh
+    - ./Tests/Scripts/verify_snapshots.sh
+  artifacts:
+    reports:
+      junit: typo3temp/var/tests/*.xml
+  only:
+    - merge_requests
+    - main
+
+# Étape 2: Tests fonctionnels headless
+test:headless:
+  stage: test
+  image: typo3/core-testing-php81:latest
+  services:
+    - mysql:5.7
+  script:
+    # Initialisation base de données
+    - mysqladmin -h mysql -u root -p$MYSQL_ROOT_PASSWORD create $MYSQL_DATABASE
+    
+    # Vérification des snapshots
+    - ./Tests/Scripts/verify_snapshots.sh
+    
+    # Exécution des tests
+    - vendor/bin/phpunit 
+      -c typo3/sysext/core/Build/FunctionalTests.xml 
+      Tests/Functional/Headless 
+      --testdox 
+      --log-junit typo3temp/var/tests/headless.xml
+  artifacts:
+    paths:
+      - typo3temp/var/tests/
+    reports:
+      junit:
+        - typo3temp/var/tests/*.xml
+  only:
+    - merge_requests
+    - main
+
+# Étape 3: Vérification de sécurité (optionnel)
+security_scan:
+  stage: security
+  script:
+    - composer require --dev typo3/security-checker
+    - vendor/bin/security-checker security:check
+  allow_failure: true
+  only:
+    - main
+
+# Étape 4: Notification
+notify_slack:
+  stage: notification
+  script:
+    - |
+      if [ "$CI_JOB_STATUS" == "success" ]; then
+        curl -X POST -H 'Content-type: application/json' 
+        --data "{\"text\":\"✅ Tests headless passés avec succès pour $CI_COMMIT_REF_NAME\"}" 
+        $SLACK_WEBHOOK_URL
+      else
+        curl -X POST -H 'Content-type: application/json' 
+        --data "{\"text\":\"❌ Échec des tests headless pour $CI_COMMIT_REF_NAME - $CI_PIPELINE_URL\"}" 
+        $SLACK_WEBHOOK_URL
+      fi
+  only:
+    - merge_requests
+  when: always
