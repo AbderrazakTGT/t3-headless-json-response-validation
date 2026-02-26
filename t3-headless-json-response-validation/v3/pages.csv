@@ -1,0 +1,2 @@
+uid,pid,title,slug,doktype,hidden,deleted,is_siteroot,l18n_cfg,fe_group
+5,0,"Test Protected Page","/test-protected-page",1,0,0,1,0,1

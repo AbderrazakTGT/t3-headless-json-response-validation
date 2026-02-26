@@ -1,0 +1,4 @@
+uid,pid,username,password,usergroup,name,first_name,last_name,email,telephone,address,zip,city,country,hidden,deleted,disable,crdate,tstamp,lastlogin
+100,0,"test_standard","$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi","1","Test Standard User","Test","Standard","test-standard@example.com","","","","","",0,0,0,0,0,0
+101,0,"test_premium","$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi","1,2","Test Premium User","Test","Premium","test-premium@example.com","","","","","",0,0,0,0,0,0
+102,0,"test_admin","$2y$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi","1,2,3","Test Admin User","Test","Admin","test-admin@example.com","","","","","",0,0,0,0,0,0

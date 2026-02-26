@@ -1,0 +1,4 @@
+uid,pid,title,description,hidden,deleted,crdate,tstamp
+1,0,"test_standard_group","Groupe utilisateurs standard",0,0,0,0
+2,0,"test_premium_group","Groupe utilisateurs premium",0,0,0,0
+3,0,"test_admin_group","Groupe administrateurs frontend",0,0,0,0
