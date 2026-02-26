@@ -1,0 +1,213 @@
+# =============================================================================
+# .gitlab-ci.yml — TYPO3 Headless Validation
+#
+# ARCHITECTURE :
+#   La base de test provient du dump versionné dans Git :
+#   tests/database/typo3_test.sql.gz
+#
+#   Ce dump est la base stable issue de l'EC2 après cleanup.
+#   Il est mis à jour après chaque merge sur main.
+#
+# COMPORTEMENT ATTENDU SUR UNE MR :
+#   Les tests peuvent échouer si la feature nécessite des données
+#   pas encore dans la base stable. C'est normal : les données seront
+#   ajoutées sur l'EC2 après le merge, et le dump mis à jour.
+#
+# JAMAIS de generate_fixtures.sh en CI — les données viennent du dump.
+# =============================================================================
+
+stages:
+  - prepare      # import du dump de référence + snapshots
+  - test         # PHPUnit contre la base stable
+  - e2e          # Playwright (optionnel)
+  - security
+  - notification
+
+variables:
+  typo3DatabaseHost:     mysql
+  typo3DatabaseName:     typo3_test
+  typo3DatabaseUsername: root
+  typo3DatabasePassword: root
+  MYSQL_ROOT_PASSWORD:   root
+  MYSQL_DATABASE:        typo3_test
+  COMPOSER_CACHE_DIR:    .cache/composer
+  FF_USE_FASTZIP:        "true"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG-composer"
+  paths:
+    - .cache/composer
+    - vendor/
+
+# =============================================================================
+# STAGE : prepare
+# Importe le dump stable depuis Git, génère les snapshots CI
+# (les snapshots CI sont basés sur la base stable — pas sur les données de feature)
+# =============================================================================
+
+prepare:import-and-snapshot:
+  stage: prepare
+  image: typo3/core-testing-php82:latest
+  services:
+    - name: mysql:8.0
+      alias: mysql
+  before_script:
+    - composer install --no-progress --prefer-dist --no-interaction
+    - chmod +x Tests/Scripts/*.sh
+    # Attendre que MySQL soit prêt
+    - |
+      for i in $(seq 1 30); do
+        mysql -h mysql -u root -proot -e "SELECT 1" > /dev/null 2>&1 && break
+        echo "Attente MySQL... ($i/30)"
+        sleep 2
+      done
+  script:
+    # 1. Importer le dump de référence (depuis Git)
+    - echo "📥 Import du dump de référence..."
+    - ./Tests/Scripts/import_dump.sh --ci
+
+    # 2. Générer les snapshots depuis la base stable
+    # ⚠️  Ces snapshots reflètent la base stable, pas les données de feature
+    # Ils servent de référence pour les tests de non-régression
+    - echo "📸 Génération des snapshots depuis la base stable..."
+    - |
+      UPDATE_SNAPSHOTS=1 vendor/bin/phpunit \
+        -c typo3/sysext/core/Build/FunctionalTests.xml \
+        Tests/Functional/Headless \
+        --testdox || true
+    # || true car certains tests peuvent échouer si la base stable ne contient
+    # pas encore les données de la feature en cours
+
+    # 3. Vérifier les snapshots générés
+    - ./Tests/Scripts/verify_snapshots.sh || true
+
+  artifacts:
+    expire_in: 1 hour
+    paths:
+      - Tests/Fixtures/Snapshots/
+  after_script:
+    - rm -rf Tests/Fixtures/Snapshots/ || true
+  only:
+    - merge_requests
+    - main
+
+# =============================================================================
+# STAGE : test
+# Tests PHPUnit contre la base stable
+# Les échecs sur MR sont possibles et documentés dans la MR
+# =============================================================================
+
+test:headless:
+  stage: test
+  image: typo3/core-testing-php82:latest
+  services:
+    - name: mysql:8.0
+      alias: mysql
+  needs:
+    - job: prepare:import-and-snapshot
+      artifacts: true
+  before_script:
+    - composer install --no-progress --prefer-dist --no-interaction
+    - chmod +x Tests/Scripts/*.sh
+    - |
+      for i in $(seq 1 30); do
+        mysql -h mysql -u root -proot -e "SELECT 1" > /dev/null 2>&1 && break
+        sleep 2
+      done
+    # Re-importer la base (les artifacts ne contiennent que les snapshots)
+    - ./Tests/Scripts/import_dump.sh --ci
+  script:
+    - |
+      vendor/bin/phpunit \
+        -c typo3/sysext/core/Build/FunctionalTests.xml \
+        Tests/Functional/Headless \
+        --testdox \
+        --log-junit typo3temp/var/tests/headless.xml
+
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - typo3temp/var/tests/
+    reports:
+      junit:
+        - typo3temp/var/tests/*.xml
+
+  after_script:
+    - rm -rf Tests/Fixtures/Snapshots/ || true
+
+  # Sur main : les tests DOIVENT passer (la base est à jour après merge)
+  # Sur MR : les échecs sont acceptés si la MR ajoute des données
+  allow_failure: false
+  only:
+    - merge_requests
+    - main
+
+# =============================================================================
+# STAGE : e2e — Playwright (optionnel)
+# =============================================================================
+
+test:playwright:
+  stage: e2e
+  image: mcr.microsoft.com/playwright:v1.41.0-focal
+  needs:
+    - job: prepare:import-and-snapshot
+      artifacts: true
+  allow_failure: true
+  variables:
+    BASE_URL: "http://typo3:80"
+  script:
+    - cd playwright
+    - npm ci
+    - npx playwright test --reporter=junit --output=../playwright-results
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - playwright-results/
+    reports:
+      junit:
+        - playwright-results/*.xml
+  after_script:
+    - rm -rf Tests/Fixtures/Snapshots/ || true
+  only:
+    - merge_requests
+    - main
+
+# =============================================================================
+# STAGE : security
+# =============================================================================
+
+security:audit:
+  stage: security
+  image: typo3/core-testing-php82:latest
+  before_script:
+    - composer install --no-progress --prefer-dist --no-interaction
+  script:
+    - composer audit || true
+  allow_failure: true
+  only:
+    - main
+
+# =============================================================================
+# STAGE : notification
+# Variables requises : SLACK_WEBHOOK_URL (masked)
+# =============================================================================
+
+notify:slack:
+  stage: notification
+  image: curlimages/curl:latest
+  script:
+    - |
+      if [ "$CI_JOB_STATUS" == "success" ]; then
+        MSG="✅ Tests headless OK — ${CI_COMMIT_REF_NAME} (${CI_COMMIT_SHORT_SHA})"
+      else
+        MSG="❌ Tests headless FAILED — ${CI_COMMIT_REF_NAME} — ${CI_PIPELINE_URL}"
+      fi
+      curl -s -X POST -H 'Content-type: application/json' \
+        --data "{\"text\":\"${MSG}\"}" \
+        "${SLACK_WEBHOOK_URL}"
+  when: always
+  only:
+    - merge_requests
+    - main

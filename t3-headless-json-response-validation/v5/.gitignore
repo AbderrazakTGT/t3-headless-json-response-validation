@@ -1,0 +1,43 @@
+# =============================================================================
+# .gitignore — TYPO3 Headless Testing
+#
+# SOURCE DE VÉRITÉ : tests/database/typo3_test.sql.gz
+#   → dump SQL de la base EC2 de référence
+#   → versionné dans Git (données anonymisées, ~quelques Mo)
+#   → importé par chaque développeur et par le CI
+#   → mis à jour manuellement après chaque merge sur main (via EC2)
+#
+# JAMAIS DANS GIT :
+#   ❌ Tests/Fixtures/Snapshots/ → réponses JSON de l'API TYPO3
+#      (générés localement par chaque dev à partir de sa base locale)
+# =============================================================================
+
+# Snapshots JSON — générés localement par chaque développeur
+# Ne pas commiter : ils dépendent des données locales du dev
+Tests/Fixtures/Snapshots/
+
+# Dépendances
+/vendor/
+.cache/
+
+# TYPO3
+typo3temp/
+typo3conf/
+
+# DDEV
+.ddev/config.yaml.local
+
+# Environnements locaux
+.env.local
+.env.test.local
+.env.*.local
+
+# Éditeurs et OS
+.DS_Store
+.idea/
+.vscode/settings.json
+*.swp
+
+# Résultats de tests
+typo3temp/var/tests/
+playwright-results/
