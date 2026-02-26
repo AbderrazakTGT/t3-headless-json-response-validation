@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["id", "type", "title", "slug", "meta", "i18n", "breadcrumbs", "appearance", "content"],
+  "properties": {
+    "id":          { "type": "integer", "minimum": 1 },
+    "type":        { "type": "string", "enum": ["pages"] },
+    "title":       { "type": "string", "minLength": 1 },
+    "slug":        { "type": "string", "pattern": "^/" },
+    "meta":        { "$ref": "partials/meta.schema.json" },
+    "i18n":        { "$ref": "partials/i18n.schema.json" },
+    "breadcrumbs": { "$ref": "partials/breadcrumbs.schema.json" },
+    "appearance":  { "$ref": "partials/appearance.schema.json" },
+    "content":     { "$ref": "partials/content.schema.json" }
+  }
+}

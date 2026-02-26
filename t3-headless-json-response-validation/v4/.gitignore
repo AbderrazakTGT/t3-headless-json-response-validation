@@ -1,0 +1,46 @@
+# =============================================================================
+# .gitignore — TYPO3 Headless Testing
+#
+# PRINCIPE FONDAMENTAL : AUCUNE DONNÉE DANS GIT
+#
+# ❌ Tests/Fixtures/Database/  → fixtures CSV générées localement
+#                                (generate_fixtures.sh ou extract_and_anonymize.sh)
+#
+# ❌ Tests/Fixtures/Snapshots/ → réponses JSON réelles de l'API TYPO3
+#                                (générées par PHPUnit avec UPDATE_SNAPSHOTS=1)
+#
+# ✅ Ce qui EST dans Git :
+#   Tests/Fixtures/Schemas/     → structure JSON uniquement (aucune donnée)
+#   Tests/Functional/Headless/  → code PHP sans données
+#   Tests/Scripts/              → scripts sans données
+# =============================================================================
+
+# DONNÉES DE TEST — jamais dans Git (RGPD + sécurité)
+Tests/Fixtures/Database/
+Tests/Fixtures/Snapshots/
+
+# Dépendances
+/vendor/
+.cache/
+
+# TYPO3
+typo3temp/
+typo3conf/
+
+# DDEV local
+.ddev/config.yaml.local
+
+# Environnements locaux
+.env.local
+.env.test.local
+.env.*.local
+
+# Éditeurs et OS
+.DS_Store
+.idea/
+.vscode/settings.json
+*.swp
+
+# Résultats de tests
+typo3temp/var/tests/
+playwright-results/

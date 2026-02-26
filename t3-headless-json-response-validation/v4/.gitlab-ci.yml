@@ -1,0 +1,194 @@
+# =============================================================================
+# .gitlab-ci.yml — TYPO3 Headless Validation
+#
+# PRINCIPE : AUCUNE DONNÉE DANS GIT
+#   - Les fixtures CSV sont générées à la volée dans chaque pipeline
+#   - Les snapshots JSON sont des artifacts éphémères (expire_in: 1 hour)
+#   - Aucun CSV, aucun snapshot ne persiste dans le dépôt
+#   - Nettoyage automatique après chaque job
+# =============================================================================
+
+stages:
+  - prepare      # generate_fixtures.sh + UPDATE_SNAPSHOTS=1
+  - test         # PHPUnit + verify_snapshots
+  - e2e          # Playwright (optionnel)
+  - security
+  - notification
+
+variables:
+  # Base de test gérée par TYPO3 Testing Framework — jamais la production
+  typo3DatabaseHost:     mysql
+  typo3DatabaseName:     typo3_test
+  typo3DatabaseUsername: root
+  typo3DatabasePassword: root
+  MYSQL_ROOT_PASSWORD:   root
+  MYSQL_DATABASE:        typo3_test
+  COMPOSER_CACHE_DIR:    .cache/composer
+  FF_USE_FASTZIP:        "true"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG-composer"
+  paths:
+    - .cache/composer
+    - vendor/
+
+# =============================================================================
+# STAGE : prepare
+# Génère les fixtures synthétiques + les snapshots.
+# Aucune base de production, aucune extraction, aucune donnée réelle.
+# =============================================================================
+
+prepare:fixtures-and-snapshots:
+  stage: prepare
+  image: typo3/core-testing-php82:latest
+  services:
+    - name: mysql:8.0
+      alias: mysql
+  before_script:
+    - composer install --no-progress --prefer-dist --no-interaction
+    - chmod +x Tests/Scripts/*.sh
+  script:
+    # 1. Générer les fixtures CSV synthétiques (aucune base de production)
+    - ./Tests/Scripts/generate_fixtures.sh
+
+    # 2. Générer les snapshots JSON
+    - |
+      UPDATE_SNAPSHOTS=1 vendor/bin/phpunit \
+        -c typo3/sysext/core/Build/FunctionalTests.xml \
+        Tests/Functional/Headless \
+        --testdox
+
+    # 3. Vérifier l'intégrité des snapshots
+    - ./Tests/Scripts/verify_snapshots.sh
+
+  artifacts:
+    # Snapshots éphémères — partagés avec le stage test uniquement
+    # expire_in court : ces données ne doivent pas être conservées
+    expire_in: 1 hour
+    paths:
+      - Tests/Fixtures/Database/
+      - Tests/Fixtures/Snapshots/
+
+  after_script:
+    # Nettoyage immédiat sur le runner
+    - rm -rf Tests/Fixtures/Database/ Tests/Fixtures/Snapshots/ || true
+
+  only:
+    - merge_requests
+    - main
+
+# =============================================================================
+# STAGE : test — Tests fonctionnels PHPUnit
+# Consomme les artifacts du stage prepare (données éphémères)
+# =============================================================================
+
+test:headless:
+  stage: test
+  image: typo3/core-testing-php82:latest
+  services:
+    - name: mysql:8.0
+      alias: mysql
+  needs:
+    - job: prepare:fixtures-and-snapshots
+      artifacts: true
+  before_script:
+    - composer install --no-progress --prefer-dist --no-interaction
+    - chmod +x Tests/Scripts/*.sh
+  script:
+    # Vérification préalable (rapide, ~5s)
+    - ./Tests/Scripts/verify_snapshots.sh
+
+    # Tests complets (5 scénarios × 7 méthodes)
+    - |
+      vendor/bin/phpunit \
+        -c typo3/sysext/core/Build/FunctionalTests.xml \
+        Tests/Functional/Headless \
+        --testdox \
+        --log-junit typo3temp/var/tests/headless.xml
+
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - typo3temp/var/tests/
+    reports:
+      junit:
+        - typo3temp/var/tests/*.xml
+
+  after_script:
+    # Nettoyage sécurité — données éphémères supprimées du runner
+    - rm -rf Tests/Fixtures/Database/ Tests/Fixtures/Snapshots/ || true
+
+  only:
+    - merge_requests
+    - main
+
+# =============================================================================
+# STAGE : e2e — Playwright (optionnel)
+# =============================================================================
+
+test:playwright:
+  stage: e2e
+  image: mcr.microsoft.com/playwright:v1.41.0-focal
+  needs:
+    - job: prepare:fixtures-and-snapshots
+      artifacts: true
+  allow_failure: true
+  variables:
+    BASE_URL: "http://typo3:80"
+  script:
+    - cd playwright
+    - npm ci
+    - npx playwright test --reporter=junit --output=../playwright-results
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - playwright-results/
+    reports:
+      junit:
+        - playwright-results/*.xml
+  after_script:
+    - rm -rf Tests/Fixtures/Database/ Tests/Fixtures/Snapshots/ || true
+  only:
+    - merge_requests
+    - main
+
+# =============================================================================
+# STAGE : security
+# =============================================================================
+
+security:audit:
+  stage: security
+  image: typo3/core-testing-php82:latest
+  before_script:
+    - composer install --no-progress --prefer-dist --no-interaction
+  script:
+    - composer audit || true
+  allow_failure: true
+  only:
+    - main
+
+# =============================================================================
+# STAGE : notification
+# Variables requises dans GitLab CI/CD → Settings → CI/CD → Variables :
+#   SLACK_WEBHOOK_URL  (masked)
+# =============================================================================
+
+notify:slack:
+  stage: notification
+  image: curlimages/curl:latest
+  script:
+    - |
+      if [ "$CI_JOB_STATUS" == "success" ]; then
+        MSG="✅ Tests headless OK — ${CI_COMMIT_REF_NAME} (${CI_COMMIT_SHORT_SHA})"
+      else
+        MSG="❌ Tests headless FAILED — ${CI_COMMIT_REF_NAME} — ${CI_PIPELINE_URL}"
+      fi
+      curl -s -X POST -H 'Content-type: application/json' \
+        --data "{\"text\":\"${MSG}\"}" \
+        "${SLACK_WEBHOOK_URL}"
+  when: always
+  only:
+    - merge_requests
+    - main
